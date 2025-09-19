@@ -46,3 +46,39 @@ func TestResolvePlaceHolder(t *testing.T) {
 
 	})
 }
+
+func TestExtractPlaceholder(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expectedKey string
+		expectedVal string
+	}{
+		{
+			name:        "valid placeholder with default value",
+			input:       "${config.key:defaultValue}",
+			expectedKey: "config.key",
+			expectedVal: "defaultValue",
+		},
+		{
+			name:        "valid placeholder without default value",
+			input:       "${config.key}",
+			expectedKey: "config.key",
+			expectedVal: "",
+		},
+		{
+			name:        "placeholder with spaces",
+			input:       "${ config.key : defaultValue }",
+			expectedKey: "config.key",
+			expectedVal: "defaultValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, val := extractPlaceholder(tt.input)
+			assert.Equal(t, tt.expectedKey, key)
+			assert.Equal(t, tt.expectedVal, val)
+		})
+	}
+}

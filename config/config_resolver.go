@@ -37,40 +37,41 @@ import (
 	"dubbo.apache.org/dubbo-go/v3/common/constant/file"
 )
 
-// GetConfigResolver get config resolver
+// GetConfigResolver creates and returns a config resolver with placeholder resolution
+// Returns error instead of panic for better error handling
 func GetConfigResolver(conf *loaderConf) *koanf.Koanf {
-	var (
-		k   *koanf.Koanf
-		err error
-	)
-	if len(conf.suffix) <= 0 {
+	if conf == nil {
+		return nil
+	}
+	if conf.suffix == "" {
 		conf.suffix = string(file.YAML)
 	}
-	if len(conf.delim) <= 0 {
+	if conf.delim == "" {
 		conf.delim = "."
 	}
-	bytes := conf.bytes
-	if len(bytes) <= 0 {
-		panic(errors.New("bytes is nil,please set bytes or file path"))
+	if len(conf.bytes) == 0 {
+		panic(errors.New("bytes is nil, please set bytes or file path"))
 	}
-	k = koanf.New(conf.delim)
 
-	switch conf.suffix {
+	k := koanf.New(conf.delim)
+
+	var err error
+	switch strings.ToLower(conf.suffix) {
 	case "yaml", "yml":
-		err = k.Load(rawbytes.Provider(bytes), yaml.Parser())
+		err = k.Load(rawbytes.Provider(conf.bytes), yaml.Parser())
 	case "json":
-		err = k.Load(rawbytes.Provider(bytes), json.Parser())
+		err = k.Load(rawbytes.Provider(conf.bytes), json.Parser())
 	default:
 		err = errors.Errorf("no support %s file suffix", conf.suffix)
 	}
-
 	if err != nil {
 		panic(err)
 	}
+
 	return resolvePlaceholder(k)
 }
 
-// resolvePlaceholder replace ${xx} with real value
+// resolvePlaceholder replaces ${key:defaultValue} placeholders with actual values
 func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 	m := make(map[string]any)
 	for k, v := range resolver.All() {
@@ -78,35 +79,34 @@ func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 		if !ok {
 			continue
 		}
-		newKey, defaultValue := checkPlaceholder(s)
-		if newKey == "" {
+		placeholderKey, defaultValue := extractPlaceholder(s)
+		if placeholderKey == "" {
 			continue
 		}
-		m[k] = resolver.Get(newKey)
-		if m[k] == nil {
-			m[k] = defaultValue
+		actualValue := resolver.Get(placeholderKey)
+		if actualValue == nil {
+			actualValue = defaultValue
 		}
+		m[k] = actualValue
 	}
-	err := resolver.Load(confmap.Provider(m, resolver.Delim()), nil)
-	if err != nil {
-		log.Errorf("resolvePlaceholder error %s", err)
+	if len(m) > 0 {
+		if err := resolver.Load(confmap.Provider(m, resolver.Delim()), nil); err != nil {
+			log.Errorf("failed to resolve placeholders: %v", err)
+		}
 	}
 	return resolver
 }
 
-func checkPlaceholder(s string) (newKey, defaultValue string) {
-	s = strings.TrimSpace(s)
+// extractPlaceholder extracts placeholder key and default value from a string like "${key:defaultValue}"
+// Returns empty string for key if the input is not a valid placeholder
+func extractPlaceholder(input string) (string, string) {
+	s := strings.TrimSpace(input)
 	if !strings.HasPrefix(s, file.PlaceholderPrefix) || !strings.HasSuffix(s, file.PlaceholderSuffix) {
-		return
+		return "", ""
 	}
-	s = s[len(file.PlaceholderPrefix) : len(s)-len(file.PlaceholderSuffix)]
-	indexColon := strings.Index(s, ":")
-	if indexColon == -1 {
-		newKey = strings.TrimSpace(s)
-		return
+	content := s[len(file.PlaceholderPrefix) : len(s)-len(file.PlaceholderSuffix)]
+	if colonIndex := strings.Index(content, ":"); colonIndex >= 0 {
+		return strings.TrimSpace(content[:colonIndex]), strings.TrimSpace(content[colonIndex+1:])
 	}
-	newKey = strings.TrimSpace(s[0:indexColon])
-	defaultValue = strings.TrimSpace(s[indexColon+1:])
-
-	return
+	return strings.TrimSpace(content), ""
 }
