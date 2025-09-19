@@ -99,6 +99,7 @@ func resolvePlaceholder(resolver *koanf.Koanf) *koanf.Koanf {
 
 // extractPlaceholder extracts placeholder key and default value from a string like "${key:defaultValue}"
 // Returns empty string for key if the input is not a valid placeholder
+// e.g. "${config.key:defaultValue}" -> ("config.key", "defaultValue")
 func extractPlaceholder(input string) (string, string) {
 	s := strings.TrimSpace(input)
 	if !strings.HasPrefix(s, file.PlaceholderPrefix) || !strings.HasSuffix(s, file.PlaceholderSuffix) {
