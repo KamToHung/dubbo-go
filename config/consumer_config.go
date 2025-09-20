@@ -156,35 +156,41 @@ func (cc *ConsumerConfig) Load() {
 		maxWait = int(maxWaitDuration.Seconds())
 	}
 
-	// wait for invoker is available, if wait over default 3s, then panic
+	// Wait for all invokers to be available.
 	var count int
-	for {
-		checkok := true
+	for count <= maxWait {
+		allAvailable := true
 		for key, ref := range cc.References {
-			if (ref.Check != nil && *ref.Check && GetProviderService(key) == nil) ||
-				(ref.Check == nil && cc.Check && GetProviderService(key) == nil) ||
-				(ref.Check == nil && GetProviderService(key) == nil) { // default to true
-
-				if ref.invoker != nil && !ref.invoker.IsAvailable() {
-					checkok = false
-					count++
-					if count > maxWait {
-						errMsg := fmt.Sprintf("No provider available of the service %v.please check configuration.", ref.InterfaceName)
-						logger.Error(errMsg)
-						panic(errMsg)
-					}
-					time.Sleep(time.Second * 1)
-					break
-				}
-				if ref.invoker == nil {
-					logger.Warnf("The interface %s invoker not exist, may you should check your interface config.", ref.InterfaceName)
-				}
+			// Use the Check configuration at the reference level first, otherwise use the consumer level.
+			shouldCheck := cc.Check
+			if ref.Check != nil {
+				shouldCheck = *ref.Check
+			}
+			// Skip if no check is needed, or if the service is local (exists as a provider).
+			if !shouldCheck || GetProviderService(key) != nil {
+				continue
+			}
+			if ref.invoker == nil {
+				logger.Warnf("The invoker for interface %s does not exist, please check your interface configuration.", ref.InterfaceName)
+				continue
+			}
+			if !ref.invoker.IsAvailable() {
+				allAvailable = false
+				logger.Debugf("The provider for service %s is temporarily unavailable, waiting...", ref.InterfaceName)
+				break
 			}
 		}
-		if checkok {
-			break
+		if allAvailable {
+			return
 		}
+		time.Sleep(time.Second)
+		count++
 	}
+
+	// Some services are still unavailable after timeout.
+	errMsg := fmt.Sprintf("Some service providers are still unavailable after %d seconds, please check your configuration.", maxWait)
+	logger.Error(errMsg)
+	panic(errMsg)
 }
 
 // SetConsumerConfig sets consumerConfig by @c
